@@ -79,7 +79,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
         @updated:data-zoom="$emit('updated:data-zoom', $event)"
       />
     </div>
-    <div v-if="!errorDetail" class="noData" data-test="no-data">
+    <div v-if="!errorDetail && panelSchema.type != 'geomap' && panelSchema.type != 'maps'" class="noData" data-test="no-data">
       {{ noData }}
     </div>
     <div
@@ -267,6 +267,10 @@ export default defineComponent({
             data.value[0]?.length > 1 ||
             yAlias.every((y: any) => data.value[0][0][y] != null)
           );
+        }
+        case "maps":
+        case "geomap": {
+          return true;
         }
         default:
           break;
