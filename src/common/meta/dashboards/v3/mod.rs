@@ -105,6 +105,10 @@ pub struct PanelFields {
     pub longitude: Option<AxisItem>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub weight: Option<AxisItem>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<AxisItem>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value: Option<AxisItem>,
     pub filter: Vec<PanelFilter>,
 }
 
