@@ -24,6 +24,7 @@ use crate::{
         infra::config::SYSLOG_ENABLED,
         meta::{organization::DEFAULT_ORG, user::UserRequest},
     },
+    job::files::idx,
     service::{compact::stats::update_stats_from_file_list, db, users},
 };
 
@@ -114,6 +115,7 @@ pub async fn init() -> Result<(), anyhow::Error> {
     tokio::task::spawn(async move { db::alerts::watch().await });
     tokio::task::spawn(async move { db::alerts::triggers::watch().await });
     tokio::task::spawn(async move { db::organization::watch().await });
+
     tokio::task::yield_now().await; // yield let other tasks run
 
     // cache core metadata
@@ -178,6 +180,9 @@ pub async fn init() -> Result<(), anyhow::Error> {
         if let Err(e) = std::fs::create_dir_all(&CONFIG.common.data_wal_dir) {
             log::error!("Failed to create wal dir: {}", e);
         }
+        if let Err(e) = std::fs::create_dir_all(&CONFIG.common.data_idx_dir) {
+            log::error!("Failed to create wal dir: {}", e);
+        }
         // clean empty sub dirs
         _ = clean_empty_dirs(&CONFIG.common.data_wal_dir);
     }
@@ -189,6 +194,7 @@ pub async fn init() -> Result<(), anyhow::Error> {
     tokio::task::spawn(async move { metrics::run().await });
     tokio::task::spawn(async move { prom::run().await });
     tokio::task::spawn(async move { alert_manager::run().await });
+    tokio::task::spawn(async move { idx::run().await });
 
     #[cfg(feature = "enterprise")]
     o2_enterprise::enterprise::openfga::authorizer::authz::init_open_fga().await;
