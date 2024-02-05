@@ -150,7 +150,62 @@ export default defineComponent({
       instance?.proxy?.$forceUpdate();
       emit("variablesData", JSON.parse(JSON.stringify(variablesData)));
     };
+    const topologicalSort = (graph: any) => {
+      const visited: any = {};
+      const stack: any = [];
 
+      const visit = (node: any) => {
+        if (!visited[node]) {
+          visited[node] = true;
+          (graph[node] || []).forEach((neighbor: any) => {
+            visit(neighbor);
+          });
+          stack.push(node);
+        }
+      };
+
+      Object.keys(graph).forEach((node) => {
+        visit(node);
+      });
+
+      return stack.reverse();
+    };
+
+    // Helper function to check for cycles in a directed graph
+    const hasCyclesInGraph = (graph: any) => {
+      const visited: any = {};
+      const stack: any = {};
+
+      const detectCycle = (node: any) => {
+        if (!visited[node]) {
+          visited[node] = true;
+          stack[node] = true;
+
+          const neighbors = graph[node] || [];
+          for (const neighbor of neighbors) {
+            if (!visited[neighbor]) {
+              if (detectCycle(neighbor)) {
+                return true;
+              }
+            } else if (stack[neighbor]) {
+              return true; // Cycle detected
+            }
+          }
+        }
+
+        stack[node] = false;
+        return false;
+      };
+
+      const nodes = Object.keys(graph);
+      for (const node of nodes) {
+        if (detectCycle(node)) {
+          return true;
+        }
+      }
+
+      return false;
+    };
     const getVariablesData = async () => {
       console.log(
         "getVariablesData",
@@ -209,82 +264,257 @@ export default defineComponent({
       // reset the values
       variablesData.values = [];
       variablesData.isVariablesLoading = false;
+      // Create a graph to represent dependencies for query_values
+      const queryValuesDependencyGraph: any = {};
+      console.log("variablesConfigList", variablesConfigList);
+      // console.log("variablesConfigList it",it.query_data.filter);
+      
+      
+      // Add edges to the graph based on query_values dependencies
+      variablesConfigList
+        .filter(
+          (it: any) => it.type === "query_values" && it.query_data.filter
+        )
+        .forEach((variable: any) => {
+          const dependencies = variable.query_data.filter.map(
+            (filter: any) => filter.value
+          );
+          queryValuesDependencyGraph[variable.name] = dependencies;
+        });
+        // console.log("name", name);
+        
+      console.log("Query Values Dependency Graph:", queryValuesDependencyGraph);
 
-      const promise = variablesConfigList?.map((it: any, index: any) => {
-        const obj: any = {
-          name: it.name,
-          label: it.label,
-          type: it.type,
-          value: it.type == "dynamic_filters" ? [] : "",
-          isLoading: ["query_values", "dynamic_filters"].includes(it.type)
-            ? true
-            : false,
-        };
-        variablesData.values.push(obj);
-        variablesData.isVariablesLoading = true;
+      // Perform topological sorting to find hierarchy for query_values
+      const sortedQueryValues = topologicalSort(queryValuesDependencyGraph);
 
-        switch (it.type) {
-          case "query_values": {
-            console.log("it.type", it);
-            obj.isLoading = true;
-            console.log("query_data", it.query_data.filter);
-            const filterConditions = it.query_data.filter || [];
-            let dummyQuery = `SELECT * FROM '${it.query_data.stream}'`;
-            const constructedFilter = filterConditions.map(
-              (condition: any) => ({
-                name: condition.name,
-                operator: condition.operator,
-                value: condition.value,
-              })
-            );
-            const queryContext = addLabelsToSQlQuery(
-              dummyQuery,
-              constructedFilter
-            );
+      console.log("Sorted Query Values:", sortedQueryValues);
 
-            return streamService
-              .fieldValues({
-                org_identifier: store.state.selectedOrganization.identifier,
-                stream_name: it.query_data.stream,
-                start_time: new Date(
-                  props.selectedTimeDate?.start_time?.toISOString()
-                ).getTime(),
-                end_time: new Date(
-                  props.selectedTimeDate?.end_time?.toISOString()
-                ).getTime(),
-                fields: [it.query_data.field],
-                size: it?.query_data?.max_record_size
-                  ? it?.query_data?.max_record_size
-                  : 10,
-                type: it.query_data.stream_type,
-                query_context: queryContext,
-              })
-              .then((res: any) => {
-                obj.isLoading = false;
-                if (res.data.hits.length) {
-                  //set options value from the api response
-                  obj.options = res.data.hits
-                    .find((field: any) => field.field === it.query_data.field)
-                    .values.map((value: any) =>
-                      value.zo_sql_key ? value.zo_sql_key.toString() : "null"
+      // Check for circular dependencies for query_values
+      const hasQueryValuesCycles = hasCyclesInGraph(queryValuesDependencyGraph);
+
+      if (hasQueryValuesCycles) {
+        console.error("Circular dependencies detected in query_values!");
+        // Handle circular dependencies error
+        return;
+      }
+
+      // Continue with the rest of the code using sortedQueryValues for query_values
+      const promise = sortedQueryValues?.map(
+        async (variableName: any, index: any) => {
+          const it = variablesConfigList.find(
+            (it: any) => it.name === variableName
+          );
+          // const promise = variablesConfigList?.map((it: any, index: any) => {
+          const obj: any = {
+            name: it.name,
+            label: it.label,
+            type: it.type,
+            value: it.type == "dynamic_filters" ? [] : "",
+            isLoading: ["query_values", "dynamic_filters"].includes(it.type)
+              ? true
+              : false,
+          };
+          variablesData.values.push(obj);
+          variablesData.isVariablesLoading = true;
+
+          switch (it.type) {
+            case "query_values": {
+              console.log("it.type", it);
+              obj.isLoading = true;
+              console.log("query_data", it.query_data.filter);
+              const filterConditions = it.query_data.filter || [];
+              let dummyQuery = `SELECT * FROM '${it.query_data.stream}'`;
+              const constructedFilter = filterConditions.map(
+                (condition: any) => ({
+                  name: condition.name,
+                  operator: condition.operator,
+                  value: condition.value,
+                })
+              );
+              const queryContext = addLabelsToSQlQuery(
+                dummyQuery,
+                constructedFilter
+              );
+
+              return streamService
+                .fieldValues({
+                  org_identifier: store.state.selectedOrganization.identifier,
+                  stream_name: it.query_data.stream,
+                  start_time: new Date(
+                    props.selectedTimeDate?.start_time?.toISOString()
+                  ).getTime(),
+                  end_time: new Date(
+                    props.selectedTimeDate?.end_time?.toISOString()
+                  ).getTime(),
+                  fields: [it.query_data.field],
+                  size: it?.query_data?.max_record_size
+                    ? it?.query_data?.max_record_size
+                    : 10,
+                  type: it.query_data.stream_type,
+                  query_context: queryContext,
+                })
+                .then((res: any) => {
+                  obj.isLoading = false;
+                  if (res.data.hits.length) {
+                    //set options value from the api response
+                    obj.options = res.data.hits
+                      .find((field: any) => field.field === it.query_data.field)
+                      .values.map((value: any) =>
+                        value.zo_sql_key ? value.zo_sql_key.toString() : "null"
+                      );
+                    // find old value is exists in the dropdown
+                    let oldVariableObjectSelectedValue = oldVariableValue.find(
+                      (it2: any) => it2.name === it.name
                     );
-                  // find old value is exists in the dropdown
-                  let oldVariableObjectSelectedValue = oldVariableValue.find(
+
+                    // if the old value exist in dropdown set the old value otherwise set first value of drop down otherwise set blank string value
+                    if (oldVariableObjectSelectedValue) {
+                      obj.value = obj.options.includes(
+                        oldVariableObjectSelectedValue.value
+                      )
+                        ? oldVariableObjectSelectedValue.value
+                        : obj.options.length
+                        ? obj.options[0]
+                        : "";
+                    } else {
+                      obj.value = obj.options[0] || "";
+                    }
+                    variablesData.isVariablesLoading =
+                      variablesData.values.some(
+                        (val: { isLoading: any }) => val.isLoading
+                      );
+
+                    // triggers rerendering in the current component
+                    variablesData.values[index] = obj;
+
+                    emitVariablesData();
+                    return obj;
+                  } else {
+                    variablesData.isVariablesLoading =
+                      variablesData.values.some(
+                        (val: { isLoading: any }) => val.isLoading
+                      );
+
+                    // triggers rerendering in the current component
+                    variablesData.values[index] = obj;
+
+                    emitVariablesData();
+                    return obj;
+                  }
+                })
+                .catch((err: any) => {
+                  obj.isLoading = false;
+
+                  variablesData.isVariablesLoading = variablesData.values.some(
+                    (val: { isLoading: any }) => val.isLoading
+                  );
+
+                  // triggers rerendering in the current component
+                  variablesData.values[index] = obj;
+
+                  emitVariablesData();
+                  return obj;
+                });
+            }
+            case "constant": {
+              obj.value = it.value;
+              return obj;
+            }
+            case "textbox": {
+              let oldVariableObjectSelectedValue = oldVariableValue.find(
+                (it2: any) => it2.name === it.name
+              );
+              if (oldVariableObjectSelectedValue) {
+                obj.value = oldVariableObjectSelectedValue.value;
+              } else {
+                obj.value = it.value;
+              }
+              return obj;
+            }
+            case "custom": {
+              obj["options"] = it?.options;
+              let oldVariableObjectSelectedValue = oldVariableValue.find(
+                (it2: any) => it2.name === it.name
+              );
+              // if the old value exist in dropdown set the old value otherwise set first value of drop down otherwise set blank string value
+              if (oldVariableObjectSelectedValue) {
+                obj.value = oldVariableObjectSelectedValue.value;
+              } else {
+                obj.value = obj.options[0]?.value || "";
+              }
+              return obj;
+              // break;
+            }
+            case "dynamic_filters": {
+              obj.isLoading = true; // Set loading state
+
+              return streamService
+                .nameList(store.state.selectedOrganization.identifier, "", true)
+                .then((res) => {
+                  obj.isLoading = false; // Reset loading state
+
+                  const fieldsObj: any = {};
+
+                  res.data.list.forEach((item: any) => {
+                    const name = item.name;
+                    const stream_type = item.stream_type;
+
+                    (item.schema || []).forEach((schemaItem: any) => {
+                      const fieldName = schemaItem.name;
+
+                      if (!fieldsObj[fieldName]) {
+                        fieldsObj[fieldName] = [];
+                      }
+
+                      const existingEntry = fieldsObj[fieldName].find(
+                        (entry: any) =>
+                          entry.name === name &&
+                          entry.stream_type === stream_type
+                      );
+
+                      if (!existingEntry) {
+                        fieldsObj[fieldName].push({
+                          name: name,
+                          stream_type: stream_type,
+                        });
+                      }
+                    });
+                  });
+                  const fieldsArray = Object.entries(fieldsObj).map(
+                    ([schemaName, entries]) => ({
+                      name: schemaName,
+                      streams: entries,
+                    })
+                  );
+                  obj.options = fieldsArray;
+
+                  let old = oldVariableValue.find(
                     (it2: any) => it2.name === it.name
                   );
-
-                  // if the old value exist in dropdown set the old value otherwise set first value of drop down otherwise set blank string value
-                  if (oldVariableObjectSelectedValue) {
-                    obj.value = obj.options.includes(
-                      oldVariableObjectSelectedValue.value
-                    )
-                      ? oldVariableObjectSelectedValue.value
-                      : obj.options.length
-                      ? obj.options[0]
-                      : "";
+                  if (old) {
+                    obj.value = old.value.map((it2: any) => ({
+                      ...it2,
+                      streams: fieldsArray.find(
+                        (it3: any) => it3.name === it2.name
+                      )?.streams,
+                    }));
                   } else {
-                    obj.value = obj.options[0] || "";
+                    obj.value = [];
                   }
+
+                  variablesData.isVariablesLoading = variablesData.values.some(
+                    (val: { isLoading: any }) => val.isLoading
+                  );
+
+                  // triggers rerendering in the current component
+                  variablesData.values[index] = obj;
+                  emitVariablesData();
+                  return obj;
+                })
+                .catch((error) => {
+                  obj.isLoading = false; // Reset loading state
+                  // Handle error
                   variablesData.isVariablesLoading = variablesData.values.some(
                     (val: { isLoading: any }) => val.isLoading
                   );
@@ -294,145 +524,14 @@ export default defineComponent({
 
                   emitVariablesData();
                   return obj;
-                } else {
-                  variablesData.isVariablesLoading = variablesData.values.some(
-                    (val: { isLoading: any }) => val.isLoading
-                  );
-
-                  // triggers rerendering in the current component
-                  variablesData.values[index] = obj;
-
-                  emitVariablesData();
-                  return obj;
-                }
-              })
-              .catch((err: any) => {
-                obj.isLoading = false;
-
-                variablesData.isVariablesLoading = variablesData.values.some(
-                  (val: { isLoading: any }) => val.isLoading
-                );
-
-                // triggers rerendering in the current component
-                variablesData.values[index] = obj;
-
-                emitVariablesData();
-                return obj;
-              });
-          }
-          case "constant": {
-            obj.value = it.value;
-            return obj;
-          }
-          case "textbox": {
-            let oldVariableObjectSelectedValue = oldVariableValue.find(
-              (it2: any) => it2.name === it.name
-            );
-            if (oldVariableObjectSelectedValue) {
-              obj.value = oldVariableObjectSelectedValue.value;
-            } else {
-              obj.value = it.value;
-            }
-            return obj;
-          }
-          case "custom": {
-            obj["options"] = it?.options;
-            let oldVariableObjectSelectedValue = oldVariableValue.find(
-              (it2: any) => it2.name === it.name
-            );
-            // if the old value exist in dropdown set the old value otherwise set first value of drop down otherwise set blank string value
-            if (oldVariableObjectSelectedValue) {
-              obj.value = oldVariableObjectSelectedValue.value;
-            } else {
-              obj.value = obj.options[0]?.value || "";
-            }
-            return obj;
-            // break;
-          }
-          case "dynamic_filters": {
-            obj.isLoading = true; // Set loading state
-
-            return streamService
-              .nameList(store.state.selectedOrganization.identifier, "", true)
-              .then((res) => {
-                obj.isLoading = false; // Reset loading state
-
-                const fieldsObj: any = {};
-
-                res.data.list.forEach((item: any) => {
-                  const name = item.name;
-                  const stream_type = item.stream_type;
-
-                  (item.schema || []).forEach((schemaItem: any) => {
-                    const fieldName = schemaItem.name;
-
-                    if (!fieldsObj[fieldName]) {
-                      fieldsObj[fieldName] = [];
-                    }
-
-                    const existingEntry = fieldsObj[fieldName].find(
-                      (entry: any) =>
-                        entry.name === name && entry.stream_type === stream_type
-                    );
-
-                    if (!existingEntry) {
-                      fieldsObj[fieldName].push({
-                        name: name,
-                        stream_type: stream_type,
-                      });
-                    }
-                  });
                 });
-                const fieldsArray = Object.entries(fieldsObj).map(
-                  ([schemaName, entries]) => ({
-                    name: schemaName,
-                    streams: entries,
-                  })
-                );
-                obj.options = fieldsArray;
-
-                let old = oldVariableValue.find(
-                  (it2: any) => it2.name === it.name
-                );
-                if (old) {
-                  obj.value = old.value.map((it2: any) => ({
-                    ...it2,
-                    streams: fieldsArray.find(
-                      (it3: any) => it3.name === it2.name
-                    )?.streams,
-                  }));
-                } else {
-                  obj.value = [];
-                }
-
-                variablesData.isVariablesLoading = variablesData.values.some(
-                  (val: { isLoading: any }) => val.isLoading
-                );
-
-                // triggers rerendering in the current component
-                variablesData.values[index] = obj;
-                emitVariablesData();
-                return obj;
-              })
-              .catch((error) => {
-                obj.isLoading = false; // Reset loading state
-                // Handle error
-                variablesData.isVariablesLoading = variablesData.values.some(
-                  (val: { isLoading: any }) => val.isLoading
-                );
-
-                // triggers rerendering in the current component
-                variablesData.values[index] = obj;
-
-                emitVariablesData();
-                return obj;
-              });
+            }
+            default:
+              obj.value = it.value;
+              return obj;
           }
-          default:
-            obj.value = it.value;
-            return obj;
         }
-      });
+      );
 
       variablesData.isVariablesLoading = variablesData.values.some(
         (val: { isLoading: any }) => val.isLoading
