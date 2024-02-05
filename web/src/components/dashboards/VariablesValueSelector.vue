@@ -237,6 +237,10 @@ export default defineComponent({
                 value: condition.value,
               })
             );
+            const queryContext = addLabelsToSQlQuery(
+              dummyQuery,
+              constructedFilter
+            );
 
             return streamService
               .fieldValues({
@@ -253,7 +257,7 @@ export default defineComponent({
                   ? it?.query_data?.max_record_size
                   : 10,
                 type: it.query_data.stream_type,
-                query_context: addLabelsToSQlQuery(dummyQuery, constructedFilter),
+                query_context: queryContext,
               })
               .then((res: any) => {
                 obj.isLoading = false;
