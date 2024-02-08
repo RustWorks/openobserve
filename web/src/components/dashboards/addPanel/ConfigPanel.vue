@@ -44,7 +44,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
     />
 
     <div class="space"></div>
-    
+
     <div class="o2-input">
       <q-select
         v-if="
@@ -226,7 +226,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
       </q-select>
 
       <div class="space"></div>
-      
+
       <div v-if="dashboardPanelData.data.type == 'geomap'">
         <span>Initial View:</span>
         <div class="row">
@@ -547,7 +547,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
       >
       </q-input>
 
-      <Drilldown></Drilldown>
+      <Drilldown />
 
       <div class="space"></div>
 
